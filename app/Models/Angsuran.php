@@ -12,14 +12,17 @@ class Angsuran extends Model
     use Notifiable;
     protected $fillable = [
         'pinjaman_id',
+        'nik',
         'anggota_name',
         'angsuran_ke',
         'jumlah_angsuran',
+        'jenis_bunga',
         'bunga_angsuran',
         'tenggat_waktu',
         'tanggal_bayar',
         'jenis',
         'bukti',
         'status',
+        'is_didenda',
     ];
 }

@@ -10,14 +10,14 @@ return new class extends Migration {
      */
     public function up(): void
     {
-        Schema::create('nasabahs', function (Blueprint $table) {
+        Schema::create('assets', function (Blueprint $table) {
             $table->id();
-            $table->string('name');
-            $table->string('email')->unique();
-            $table->string('phone');
-            $table->string('alamat');
-            $table->string('nik')->unique();
-            $table->string('status')->default('available');
+            $table->date('tanggal');
+            $table->string('jenis');
+            $table->string('sub_jenis');
+            $table->string('nama');
+            $table->integer('jumlah');
+            $table->string('status');
             $table->timestamps();
         });
     }
@@ -27,6 +27,6 @@ return new class extends Migration {
      */
     public function down(): void
     {
-        Schema::dropIfExists('nasabahs');
+        Schema::dropIfExists('assets');
     }
 };

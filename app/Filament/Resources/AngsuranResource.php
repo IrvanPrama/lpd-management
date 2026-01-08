@@ -5,6 +5,8 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\AngsuranResource\Pages;
 use App\Models\Angsuran;
 use App\Models\Pemasukan;
+use App\Models\ProfitLoss;
+use Carbon\Carbon;
 use Filament\Forms;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
@@ -34,6 +36,8 @@ class AngsuranResource extends Resource
                     ->numeric(),
                 Forms\Components\TextInput::make('jumlah_angsuran')
                     ->numeric(),
+                Forms\Components\TextInput::make('jenis_bunga')
+                    ->maxLength(255),
                 Forms\Components\TextInput::make('bunga_angsuran')
                     ->numeric(),
                 DatePicker::make('tenggat_waktu')
@@ -54,6 +58,8 @@ class AngsuranResource extends Resource
                 Tables\Columns\TextColumn::make('pinjaman_id')
                     ->numeric()
                     ->sortable(),
+                Tables\Columns\TextColumn::make('nik')
+                   ->sortable(),
                 Tables\Columns\TextColumn::make('anggota_name')
                     ->sortable()
                     ->searchable(),
@@ -62,6 +68,8 @@ class AngsuranResource extends Resource
                     ->sortable(),
                 Tables\Columns\TextColumn::make('jumlah_angsuran')
                     ->numeric()
+                    ->sortable(),
+                Tables\Columns\TextColumn::make('jenis_bunga')
                     ->sortable(),
                 Tables\Columns\TextColumn::make('bunga_angsuran')
                     ->numeric()
@@ -90,6 +98,14 @@ class AngsuranResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                Tables\Filters\SelectFilter::make('anggota_name')
+                    ->label('Nama Peminjam')
+                    ->options(Angsuran::pluck('anggota_name', 'anggota_name'))
+                    ->searchable(),
+                Tables\Filters\SelectFilter::make('nik')
+                    ->label('KTP Peminjam')
+                    ->options(Angsuran::pluck('nik', 'nik'))
+                    ->searchable(),
             ])
            ->actions([
                Action::make('bayar')
@@ -109,22 +125,21 @@ class AngsuranResource extends Resource
                            ->label('Bukti Pembayaran')
                            ->image()
                            ->disk('public')
-                           ->directory('bukti-angsuran')
-                           ->required(),
+                           ->directory('bukti-angsuran'),
                    ])
                    ->action(function (Angsuran $record, array $data) {
                        DB::transaction(function () use ($record, $data) {
-                           // 1️⃣ Update angsuran
+                           // Update angsuran
                            $record->update([
                                'tanggal_bayar' => $data['tanggal_bayar'],
                                'bukti' => $data['bukti'],
                                'status' => 'sudah_bayar',
                            ]);
 
-                           // 2️⃣ Hitung total pemasukan
+                           // Hitung total pemasukan
                            $totalPemasukan = $record->jumlah_angsuran + $record->bunga_angsuran;
 
-                           // 3️⃣ Simpan ke tabel pemasukan
+                           // Simpan ke tabel pemasukan
                            Pemasukan::create([
                                'sumber_pemasukan' => $record->jenis.'-pinjaman #'.$record->pinjaman_id.
                                                       ' - Angsuran ke '.$record->angsuran_ke,
@@ -132,6 +147,21 @@ class AngsuranResource extends Resource
                                'tanggal_pemasukan' => $record->tanggal_bayar,
                                'keterangan' => 'Pembayaran angsuran pinjaman',
                            ]);
+
+                           $date = Carbon::parse($record->tanggal_bayar);
+                           if ($record->bunga_angsuran > 0) {
+                               ProfitLoss::create([
+                                   'sumber' => $record->jenis.'-pinjaman #'.$record->pinjaman_id.
+                                               ' - Angsuran ke '.$record->angsuran_ke,
+                                   'total_pendapatan' => $record->bunga_angsuran,
+                                   'jenis' => 'bunga pinjaman',
+                                   'tahun' => $date->format('Y'),
+                                   'bulan' => $date->format('M'),
+                                   'tanggal' => $record->tanggal_bayar,
+
+                                   'keterangan' => 'Pembayaran angsuran pinjaman',
+                               ]);
+                           }
                        });
                    })
                    ->requiresConfirmation(),

@@ -16,5 +16,6 @@ class Nasabah extends Model
         'phone',
         'alamat',
         'nik',
+        'status',
     ];
 }

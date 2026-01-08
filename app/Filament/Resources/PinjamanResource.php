@@ -14,6 +14,7 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
 use Filament\Forms\Set;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Actions\Action;
@@ -34,20 +35,12 @@ class PinjamanResource extends Resource
             ->schema([
                 Select::make('anggota_id')
                     ->label('Nasabah')
-                    ->required()
-                    ->searchable()
-                    ->getSearchResultsUsing(function (string $search) {
-                        return Nasabah::query(o)
-                            ->where('name', 'like', "%{$search}%")
-                            ->orWhere('nik', 'like', "%{$search}%")
-                            ->limit(20)
+                    ->options([
+                        Nasabah::query()->where('status', 'available')
                             ->pluck('name', 'id')
-                            ->toArray();
-                    })
-                    ->getOptionLabelUsing(function ($value) {
-                        return Nasabah::find($value)?->name;
-                    })
-                    ->live()
+                            ->toArray(),
+                    ])
+                    ->reactive()
                     ->afterStateUpdated(function (Get $get, Set $set) {
                         $set('anggota_name', Nasabah::find($get('anggota_id'))->name);
                     }),
@@ -56,6 +49,14 @@ class PinjamanResource extends Resource
                     ->label('Nama Nasabah')
                     ->disabled()
                     ->dehydrated(),
+
+                Select::make('jenis_bunga')
+                    ->label('Jenis Bunga')
+                    ->options([
+                        'flat' => 'Flat',
+                        'menurun' => 'Menurun',
+                    ])
+                    ->required(),
 
                 Forms\Components\TextInput::make('jumlah_pinjaman')
                     ->label('Jumlah Pinjaman')
@@ -115,6 +116,15 @@ class PinjamanResource extends Resource
 
                 DatePicker::make('jatuh_tempo')
                     ->label('Jatuh Tempo'),
+
+                Select::make('status')
+                    ->label('Status')
+                    ->options([
+                        'pending' => 'Pending',
+                        'approved' => 'Approved',
+                        'running' => 'Running',
+                        'rejected' => 'Rejected',
+                    ]),
             ]);
     }
 
@@ -205,44 +215,101 @@ class PinjamanResource extends Resource
                                     ->addMonthsNoOverflow((int) $record->tenor)
                                     ->toDateString(),
                                 'bukti' => $data['bukti'],
-                                'status' => 'pinjaman_berjalan',
+                                'status' => 'running',
                             ]);
 
                             // 2️ Generate angsuran
                             $tenor = (int) $record->tenor;
 
-                            $angsuranPokok = $record->jumlah_pinjaman / $tenor;
-                            $angsuranBunga = $record->bunga / $tenor;
+                            // Ambil persen bunga
+                            $persentase = (Bunga::value('persentase_bunga') ?? 0) / 100;
 
-                            for ($i = 1; $i <= $tenor; ++$i) {
-                                $tenggatWaktu = $tanggalPinjaman
-                                    ->copy()
-                                    ->addMonthsNoOverflow($i)
-                                    ->toDateString();
+                            if ($record->jenis_bunga === 'flat') {
+                                // JENIS BUNGA FLAT
+                                $angsuranPokok = $record->jumlah_pinjaman / $tenor;
+                                $angsuranBunga = ($record->jumlah_pinjaman * $persentase);
 
-                                // Pokok
-                                Angsuran::create([
-                                    'pinjaman_id' => $record->id,
-                                    'anggota_name' => $record->anggota_name,
-                                    'angsuran_ke' => $i,
-                                    'jumlah_angsuran' => round($angsuranPokok, 2),
-                                    'jenis' => 'pokok',
-                                    'status' => 'belum_bayar',
-                                    'tenggat_waktu' => $tenggatWaktu,
-                                ]);
+                                for ($i = 1; $i <= $tenor; ++$i) {
+                                    $tenggatWaktu = $tanggalPinjaman
+                                        ->copy()
+                                        ->addMonthsNoOverflow($i)
+                                        ->toDateString();
 
-                                // Bunga
-                                Angsuran::create([
-                                    'pinjaman_id' => $record->id,
-                                    'anggota_name' => $record->anggota_name,
-                                    'angsuran_ke' => $i,
-                                    'bunga_angsuran' => round($angsuranBunga, 2),
-                                    'jenis' => 'bunga',
-                                    'status' => 'belum_bayar',
-                                    'tenggat_waktu' => $tenggatWaktu,
-                                ]);
+                                    // Pokok
+                                    Angsuran::create([
+                                        'pinjaman_id' => $record->id,
+                                        'anggota_name' => $record->anggota_name,
+                                        'angsuran_ke' => $i,
+                                        'jumlah_angsuran' => round($angsuranPokok, 2),
+                                        'jenis' => 'pokok',
+                                        'is_didenda' => false,
+                                        'status' => 'belum_bayar',
+                                        'tenggat_waktu' => $tenggatWaktu,
+                                    ]);
+
+                                    // Bunga Tetap
+                                    Angsuran::create([
+                                        'pinjaman_id' => $record->id,
+                                        'anggota_name' => $record->anggota_name,
+                                        'angsuran_ke' => $i,
+                                        'bunga_angsuran' => round($angsuranBunga, 2),
+                                        'jenis' => 'bunga',
+                                        'is_didenda' => false,
+                                        'status' => 'belum_bayar',
+                                        'tenggat_waktu' => $tenggatWaktu,
+                                    ]);
+
+                                    // Update status nasabah
+                                    Nasabah::update([
+                                        'status' => 'running',
+                                    ]);
+                                }
+                            } else {
+                                // JENIS BUNGA MENURUN
+                                $sisaPokok = $record->jumlah_pinjaman;
+                                $angsuranPokok = $record->jumlah_pinjaman / $tenor;
+
+                                for ($i = 1; $i <= $tenor; ++$i) {
+                                    $tenggatWaktu = $tanggalPinjaman
+                                        ->copy()
+                                        ->addMonthsNoOverflow($i)
+                                        ->toDateString();
+
+                                    $bungaMenurun = $sisaPokok * $persentase;
+
+                                    // Pokok
+                                    Angsuran::create([
+                                        'pinjaman_id' => $record->id,
+                                        'anggota_name' => $record->anggota_name,
+                                        'angsuran_ke' => $i,
+                                        'jumlah_angsuran' => round($angsuranPokok, 2),
+                                        'jenis' => 'pokok',
+                                        'is_didenda' => false,
+                                        'status' => 'belum_bayar',
+                                        'tenggat_waktu' => $tenggatWaktu,
+                                    ]);
+
+                                    // Bunga Menurun
+                                    Angsuran::create([
+                                        'pinjaman_id' => $record->id,
+                                        'anggota_name' => $record->anggota_name,
+                                        'angsuran_ke' => $i,
+                                        'bunga_angsuran' => round($bungaMenurun, 2),
+                                        'jenis' => 'bunga',
+                                        'is_didenda' => false,
+                                        'status' => 'belum_bayar',
+                                        'tenggat_waktu' => $tenggatWaktu,
+                                    ]);
+
+                                    $sisaPokok -= $angsuranPokok;
+                                }
                             }
                         });
+
+                        Notification::make()
+                            ->title('Pinjaman disetujui dan angsuran telah dibuat.')
+                            ->success()
+                            ->send();
                     }),
                 Tables\Actions\EditAction::make(),
             ])

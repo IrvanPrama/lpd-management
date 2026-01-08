@@ -13,15 +13,18 @@ return new class extends Migration {
         Schema::create('angsurans', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('pinjaman_id');
+            $table->string('nik');
             $table->string('anggota_name')->nullable();
             $table->integer('angsuran_ke');
             $table->decimal('jumlah_angsuran', 15, 2)->nullable();
+            $table->string('jenis_bunga')->nullable();
             $table->decimal('bunga_angsuran', 5, 2)->nullable();
             $table->date('tenggat_waktu');
             $table->date('tanggal_bayar')->nullable();
             $table->string('jenis')->nullable();
             $table->string('bukti')->nullable();
             $table->string('status')->default('belum_bayar');
+            $table->boolean('is_didenda')->default(false);
             $table->timestamps();
         });
     }

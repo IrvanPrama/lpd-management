@@ -16,6 +16,7 @@ class Pinjaman extends Model
         'anggota_name',
         'jumlah_pinjaman',
         'tenor',
+        'jenis_bunga',
         'bunga',
         'tanggal_pinjaman',
         'tanggal_disetujui',
